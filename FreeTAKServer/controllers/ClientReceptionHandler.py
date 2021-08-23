@@ -11,7 +11,7 @@ import time
 import socket
 from FreeTAKServer.controllers.CreateLoggerController import CreateLoggerController
 from defusedxml import ElementTree as etree
-
+import io
 logger = CreateLoggerController("ClientReceptionHandler").getLogger()
 from FreeTAKServer.controllers.configuration.ClientReceptionLoggingConstants import ClientReceptionLoggingConstants
 
@@ -70,6 +70,15 @@ class ClientReceptionHandler:
                         self.clientInformationArray.remove(client)
                         self.returnReceivedData(client, b'', queue)
                         continue
+                    except io.BlockingIOError as e:
+                        # io blocking error aka Errno 11 is thrown at regular intrevals by client connected
+                        # currently it's not known why but this suppresses the disconnection of clients
+                        # otherwise SSL client behaviour appears regular
+                        time.sleep(0.01)
+                        try:
+                            part = sock.recv(BUFF_SIZE)
+                        except:
+                            continue
                     except Exception as e:
                         print('\n\n disconnect C ' + str(e) + "\n\n")
                         logger.error("Exception other than broken pipe in monitor for data function "+str(e))
