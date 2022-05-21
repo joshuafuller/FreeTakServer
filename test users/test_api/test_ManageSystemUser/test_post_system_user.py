@@ -58,7 +58,9 @@ class Test_postSystemUser(TestCase):
         assert response.status_code == 201
         #self.mock_certificate_generation_controller.generate_standard_zip.assert_called_once()
         FreeTAKServer.controllers.services.RestAPI.dbController.create_systemUser.assert_called_once()
+        FreeTAKServer.controllers.services.RestAPI.dbController.create_systemUser.reset_mock()
         FreeTAKServer.controllers.services.RestAPI.dbController.create_datapackage.assert_called_once()
+        FreeTAKServer.controllers.services.RestAPI.dbController.create_datapackage.reset_mock()
 
     @mock.patch('FreeTAKServer.controllers.services.RestAPI.dbController', mock_dbController)
     def test_basic_request_without_cert(self):
@@ -86,7 +88,9 @@ class Test_postSystemUser(TestCase):
         assert response.status_code == 201
         #self.mock_certificate_generation_controller.generate_standard_zip.assert_called_once()
         FreeTAKServer.controllers.services.RestAPI.dbController.create_systemUser.assert_called()
+        FreeTAKServer.controllers.services.RestAPI.dbController.create_systemUser.reset_mock()
         FreeTAKServer.controllers.services.RestAPI.dbController.create_datapackage.assert_called()
+        FreeTAKServer.controllers.services.RestAPI.dbController.create_datapackage.reset_mock()
 
     @mock.patch('FreeTAKServer.controllers.certificate_generation', mock_certificate_generation_controller)
     @mock.patch('FreeTAKServer.controllers.services.RestAPI.dbController', mock_dbController)
@@ -106,7 +110,9 @@ class Test_postSystemUser(TestCase):
         assert response.status_code == 201
         #self.mock_certificate_generation_controller.generate_standard_zip.assert_called_once()
         FreeTAKServer.controllers.services.RestAPI.dbController.create_systemUser.assert_called()
+        FreeTAKServer.controllers.services.RestAPI.dbController.create_systemUser.reset_mock()
         FreeTAKServer.controllers.services.RestAPI.dbController.create_datapackage.assert_called()
+        FreeTAKServer.controllers.services.RestAPI.dbController.create_datapackage.reset_mock()
 
     @mock.patch('FreeTAKServer.controllers.certificate_generation', mock_certificate_generation_controller)
     @mock.patch('FreeTAKServer.controllers.services.RestAPI.dbController', mock_dbController)
@@ -117,5 +123,7 @@ class Test_postSystemUser(TestCase):
         assert response.status_code == 500
         #self.mock_certificate_generation_controller.generate_standard_zip.assert_called_once()
         FreeTAKServer.controllers.services.RestAPI.dbController.create_systemUser.assert_not_called()
+        FreeTAKServer.controllers.services.RestAPI.dbController.create_systemUser.reset_mock()
         FreeTAKServer.controllers.services.RestAPI.dbController.create_datapackage.assert_not_called()
+        FreeTAKServer.controllers.services.RestAPI.dbController.create_datapackage.reset_mock()
 

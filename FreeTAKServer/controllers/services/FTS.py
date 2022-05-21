@@ -4,42 +4,46 @@ import argparse
 import linecache
 import sys
 import random
+import os
+import time
+import queue
+from datetime import datetime as dt
+from multiprocessing import Queue
 
 from FreeTAKServer.controllers.CreateStartupFilesController import CreateStartupFilesController
 
 CreateStartupFilesController()
 
-from FreeTAKServer.model.User import User
-
-from FreeTAKServer.controllers.services.TCPDataPackageService import TCPDataPackageService as TCPFlaskFunctions
-from FreeTAKServer.controllers.services.SSLDataPackageService import SSLDataPackageService as SSLFlaskFunctions
-from FreeTAKServer.controllers.configuration.OrchestratorConstants import OrchestratorConstants
-from FreeTAKServer.controllers.configuration.LoggingConstants import LoggingConstants
-from FreeTAKServer.controllers.CreateLoggerController import CreateLoggerController
-from FreeTAKServer.controllers.services.RestAPI import RestAPI
 from FreeTAKServer.model.ServiceObjects.FTS import FTS as FTSObj
 from FreeTAKServer.model.SimpleClient import SimpleClient
+from FreeTAKServer.model.User import User
+from FreeTAKServer.model.Enumerations.connectionTypes import ConnectionTypes
+from FreeTAKServer.model.Enumerations.serviceTypes import ServiceTypes
+from FreeTAKServer.model.SpecificCoT.Presence import Presence
+from FreeTAKServer.model.Connection import Connection
+from FreeTAKServer.model.FilterGroup import FilterGroup
+
+from FreeTAKServer.controllers.certificate_generation import AtakOfTheCerts
+
+from FreeTAKServer.controllers.CreateLoggerController import CreateLoggerController
+
 from FreeTAKServer.controllers.configuration_wizard import ask_user_for_config
 
-import time
-import queue
-
 from FreeTAKServer.controllers.AddDataToCoTList import AddDataToCoTList
-from FreeTAKServer.model.FilterGroup import FilterGroup
+
+from FreeTAKServer.controllers.DatabaseControllers.DatabaseController import DatabaseController
+
+from FreeTAKServer.controllers.configuration.MainConfig import MainConfig
+from FreeTAKServer.controllers.configuration.OrchestratorConstants import OrchestratorConstants
+from FreeTAKServer.controllers.configuration.LoggingConstants import LoggingConstants
+
+from FreeTAKServer.controllers.services.RestAPI import RestAPI
+from FreeTAKServer.controllers.services.TCPDataPackageService import TCPDataPackageService as TCPFlaskFunctions
+from FreeTAKServer.controllers.services.SSLDataPackageService import SSLDataPackageService as SSLFlaskFunctions
 from FreeTAKServer.controllers.services.SSLCoTServiceController import SSLCoTServiceController
 from FreeTAKServer.controllers.services.TCPCoTServiceController import TCPCoTServiceController
 from FreeTAKServer.controllers.services.federation.FederationClientService import FederationClientServiceController
 from FreeTAKServer.controllers.services.federation.federation import FederationServerService
-from FreeTAKServer.controllers.DatabaseControllers.DatabaseController import DatabaseController
-from FreeTAKServer.controllers.certificate_generation import AtakOfTheCerts
-from multiprocessing import Queue
-from FreeTAKServer.controllers.configuration.MainConfig import MainConfig
-
-from FreeTAKServer.model.Enumerations.serviceTypes import ServiceTypes
-from FreeTAKServer.model.SpecificCoT.Presence import Presence
-from FreeTAKServer.model.Connection import Connection
-
-from FreeTAKServer.model.Enumerations.connectionTypes import ConnectionTypes
 
 loggingConstants = LoggingConstants(log_name="FTS_FTSCore")
 logger = CreateLoggerController("FTS_FTSCore", logging_constants=loggingConstants).getLogger()
@@ -390,7 +394,6 @@ class FTS:
 
     # change object name to FTSServiceStartupConfigObject
     def start_all(self, FTSServiceStartupConfigObject):
-        import copy
         try:
             if FTSServiceStartupConfigObject.TCPDataPackageService.TCPDataPackageServiceStatus == 'start':
                 self.FTSServiceStartupConfigObject.TCPDataPackageService.TCPDataPackageServiceStatus = FTSServiceStartupConfigObject.TCPDataPackageService.TCPDataPackageServiceStatus
@@ -578,7 +581,6 @@ class FTS:
             else:
                 return self.user_dict
         except Exception as e:
-            import traceback
             exc_type, exc_obj, tb = sys.exc_info()
             f = tb.tb_frame
             lineno = tb.tb_lineno
@@ -708,7 +710,7 @@ class FTS:
             self.FTSServiceStartupConfigObject.RestAPIService.RestAPIServicePort = RestAPIPort
             self.FTSServiceStartupConfigObject.RestAPIServiceIP = RestAPIIP
             if firstStart:
-                from datetime import datetime as dt
+
                 self.StartupTime = dt.now()
             else:
                 pass
@@ -771,7 +773,6 @@ class FTS:
             logger.error('exception in the startup of FTS ' + str(e))
 
 
-import time
 
 class QueueManager:
     def __init__(self, sender_queue: Queue, listener_queue: Queue):
@@ -889,7 +890,6 @@ if __name__ == "__main__":
         aotc.generate_ca(expiry_time_secs=31536000)
         aotc.bake(common_name="server", cert="server", expiry_time_secs=31536000)
         aotc.bake(common_name="Client", cert="user", expiry_time_secs=31536000)
-        import os
 
         if args.d:
             CreateStartupFilesController().create_daemon()

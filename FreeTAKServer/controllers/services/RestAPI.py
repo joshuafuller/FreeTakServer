@@ -2,7 +2,38 @@ from flask import Flask, request, jsonify, session, send_file
 from flask_sqlalchemy import SQLAlchemy
 from flask_socketio import SocketIO, emit
 from flask_httpauth import HTTPTokenAuth
+from flask import url_for
+
 from flask_login import current_user, LoginManager
+
+import geopy
+from geopy.distance import distance
+import re
+import json
+from datetime import datetime
+from defusedxml import ElementTree as etree
+from os import listdir
+from datetime import datetime
+from flask import request
+from pykml.factory import KML_ElementMaker as KML
+from pykml import parser
+from lxml import etree
+import string
+import hashlib
+from zipfile import ZipFile
+from lxml.etree import SubElement, Element  # pylint: disable=no-name-in-module
+from geopy import Nominatim
+from lxml.etree import tostring  # pylint: disable=no-name-in-module; name is in module
+from urllib import parse
+from geopy import Point, distance
+from json import dumps
+import hashlib
+import time
+import uuid
+import datetime as dt
+import os
+import psutil
+from pathlib import PurePath, Path
 import threading
 from functools import wraps
 import uuid
@@ -15,22 +46,42 @@ import json
 from flask_cors import CORS
 import qrcode
 import io
+import random
+from math import sqrt, degrees, cos, sin, radians, atan2
+from sqlalchemy import or_, and_
 
 from FreeTAKServer.controllers import certificate_generation
-from FreeTAKServer.controllers.configuration.LoggingConstants import LoggingConstants
-from FreeTAKServer.model.FTSModel.Event import Event
-from FreeTAKServer.model.RawCoT import RawCoT
-from FreeTAKServer.controllers.ApplyFullJsonController import ApplyFullJsonController
+
 from FreeTAKServer.controllers.XMLCoTController import XMLCoTController
-from FreeTAKServer.model.ServiceObjects.FTS import FTS
-from FreeTAKServer.controllers.configuration.RestAPIVariables import RestAPIVariables as vars
-from FreeTAKServer.model.SimpleClient import SimpleClient
+
+from FreeTAKServer.controllers.ServerStatusController import ServerStatusController
+
+from FreeTAKServer.controllers.ApplyFullJsonController import ApplyFullJsonController
+
+from FreeTAKServer.controllers.JsonController import JsonController
+
 from FreeTAKServer.controllers.DatabaseControllers.DatabaseController import DatabaseController
-from FreeTAKServer.controllers.configuration.DatabaseConfiguration import DatabaseConfiguration
-from FreeTAKServer.controllers.RestMessageControllers.SendChatController import SendChatController
-from FreeTAKServer.controllers.RestMessageControllers.SendDeleteVideoStreamController import \
-    SendDeleteVideoStreamController
+
+from FreeTAKServer.controllers.SpecificCoTControllers.SendOtherController import SendOtherController
+
+from FreeTAKServer.controllers.ExCheckControllers.templateToJsonSerializer import templateSerializer
+from FreeTAKServer.controllers.ExCheckControllers.templateToJsonSerializer import templateSerializer
+
+from FreeTAKServer.controllers.certificate_generation import revoke_certificate
+
+from FreeTAKServer.controllers.serializers.SqlAlchemyObjectController import SqlAlchemyObjectController
 from FreeTAKServer.controllers.serializers.xml_serializer import XmlSerializer
+
+from FreeTAKServer.controllers.configuration.RestAPIVariables import RestAPIVariables as vars
+from FreeTAKServer.controllers.configuration.LoggingConstants import LoggingConstants
+from FreeTAKServer.controllers.configuration.DatabaseConfiguration import DatabaseConfiguration
+from FreeTAKServer.controllers.configuration.MainConfig import MainConfig
+
+from FreeTAKServer.controllers.SpecificCoTControllers.SendGeoChatController import SendGeoChatController
+
+from FreeTAKServer.controllers.RestMessageControllers.SendChatController import SendChatController
+from FreeTAKServer.controllers.RestMessageControllers.SendChatController import SendChatController
+from FreeTAKServer.controllers.RestMessageControllers.SendDeleteVideoStreamController import SendDeleteVideoStreamController
 from FreeTAKServer.controllers.RestMessageControllers.SendSimpleCoTController import SendSimpleCoTController, \
     UpdateSimpleCoTController
 from FreeTAKServer.controllers.RestMessageControllers.SendPresenceController import SendPresenceController, \
@@ -41,9 +92,16 @@ from FreeTAKServer.controllers.RestMessageControllers.SendSPISensorController im
 from FreeTAKServer.controllers.RestMessageControllers.SendImageryVideoController import SendImageryVideoController
 from FreeTAKServer.controllers.RestMessageControllers.SendRouteController import SendRouteController
 from FreeTAKServer.controllers.RestMessageControllers.SendVideoStreamController import SendVideoStreamController
-from FreeTAKServer.controllers.configuration.MainConfig import MainConfig
-from FreeTAKServer.controllers.JsonController import JsonController
-from FreeTAKServer.controllers.serializers.SqlAlchemyObjectController import SqlAlchemyObjectController
+
+from FreeTAKServer.model.SQLAlchemy.CoTTables.Point import Point
+from FreeTAKServer.model.SQLAlchemy.Event import Event
+from FreeTAKServer.model.RestMessages.RestEnumerations import RestEnumerations
+from FreeTAKServer.model.testobj import testobj
+from FreeTAKServer.model.SQLAlchemy.CoTTables.Sensor import Sensor
+from FreeTAKServer.model.FTSModel.Event import Event
+from FreeTAKServer.model.RawCoT import RawCoT
+from FreeTAKServer.model.ServiceObjects.FTS import FTS
+from FreeTAKServer.model.SimpleClient import SimpleClient
 
 dbController = DatabaseController()
 
@@ -77,6 +135,7 @@ APIPipe = None
 CommandPipe = None
 app.config["SECRET_KEY"] = MainConfig.SecretKey
 eventDict = {}
+DATETIME_FMT = "%Y-%m-%dT%H:%M:%S.%fZ"
 
 
 @app.errorhandler(404)
@@ -242,10 +301,7 @@ def getStatus():
 @socketio.on("serverHealth")
 @socket_auth(session=session)
 def serverHealth(empty=None):
-    import psutil
-    import pathlib
-    import os
-    disk_usage = int(psutil.disk_usage(str(pathlib.Path(os.getcwd()).anchor)).percent)
+    disk_usage = int(psutil.disk_usage(str(Path(os.getcwd()).anchor)).percent)
     memory_usage = int(psutil.virtual_memory().percent)
     cpu_usage = int(psutil.cpu_percent(interval=0.1))
     jsondata = {
@@ -260,7 +316,6 @@ def serverHealth(empty=None):
 @socket_auth(session=session)
 def systemStatus(update=None):
     print('system status running')
-    from FreeTAKServer.controllers.ServerStatusController import ServerStatusController
     currentStatus = getStatus()
     statusObject = ServerStatusController(currentStatus)
     jsondata = ApplyFullJsonController().serialize_model_to_json(statusObject)
@@ -382,13 +437,6 @@ def addSystemUser(jsondata):
                 else:
                     raise Exception("invalid device type, must be either mobile or wintak")
                 # add DP
-                import string
-                import random
-                from pathlib import PurePath, Path
-                import hashlib
-                from defusedxml import ElementTree as etree
-                import shutil
-                import os
                 dp_directory = str(PurePath(Path(MainConfig.DataPackageFilePath)))
                 openfile = open(str(PurePath(Path(str(MainConfig.clientPackages), cert_name + '.zip'))),
                                 mode='rb')
@@ -406,8 +454,6 @@ def addSystemUser(jsondata):
                                                 token=systemuser["Token"], password=systemuser["Password"],
                                                 uid=user_id,
                                                 certificate_package_name=cert_name + '.zip', device_type = systemuser["DeviceType"])
-                import datetime as dt
-                DATETIME_FMT = "%Y-%m-%dT%H:%M:%S.%fZ"
                 timer = dt.datetime
                 now = timer.utcnow()
                 zulu = now.strftime(DATETIME_FMT)
@@ -418,8 +464,6 @@ def addSystemUser(jsondata):
                 now = timer.utcnow()
                 zulu = now.strftime(DATETIME_FMT)
                 time = zulu
-                from FreeTAKServer.controllers.SpecificCoTControllers.SendOtherController import SendOtherController
-                from FreeTAKServer.model.RawCoT import RawCoT
                 cot = RawCoT()
                 DPIP = getStatus().TCPDataPackageService.TCPDataPackageServiceIP
                 clientXML = f'<?xml version="1.0"?><event version="2.0" uid="{user_id}" type="b-f-t-r" time="{time}" start="{time}" stale="{stale}" how="h-e"><point lat="43.85570300" lon="-66.10801200" hae="19.55866360" ce="3.21600008" le="nan" /><detail><fileshare filename="{cert_name}" senderUrl="{DPIP}:8080/Marti/api/sync/metadata/{str(file_hash)}/tool" sizeInBytes="{fileSize}" sha256="{str(file_hash)}" senderUid="{"server-uid"}" senderCallsign="{"server"}" name="{cert_name + ".zip"}" /><ackrequest uid="{uuid.uuid4()}" ackrequested="true" tag="{cert_name + ".zip"}" /><marti><dest callsign="{systemuser["Name"]}" /></marti></detail></event>'
@@ -472,7 +516,6 @@ def removeSystemUser(jsondata):
     """ iterates through a list of system users and removes them in addition to revoking and
     deleting their certificates.
     """
-    from FreeTAKServer.controllers.certificate_generation import revoke_certificate
     for systemUser in jsondata["systemUsers"]:
         uid = systemUser["uid"]
         systemUser = dbController.query_systemUser(query=f'uid = "{uid}"')[0]
@@ -595,7 +638,6 @@ def SendGeoChat():
         modelObject = Event.GeoChat()
         out = ApplyFullJsonController().serializeJsonToModel(modelObject, json)
         xml = XMLCoTController().serialize_model_to_CoT(out, 'event')
-        from FreeTAKServer.controllers.SpecificCoTControllers.SendGeoChatController import SendGeoChatController
         rawcot = RawCoT()
         rawcot.xmlString = xml
         rawcot.clientInformation = None
@@ -616,8 +658,6 @@ def ManagePresence():
 @auth.login_required
 def postPresence():
     try:
-        from json import dumps
-        # jsondata = {'longitude': '12.345678', 'latitude': '34.5677889', 'how': 'nonCoT', 'name': 'testing123'}
         jsondata = request.get_json(force=True)
         jsonobj = JsonController().serialize_presence_post(jsondata)
         Presence = SendPresenceController(jsonobj).getCoTObject()
@@ -631,8 +671,6 @@ def postPresence():
 @auth.login_required
 def putPresence():
     try:
-        from json import dumps
-        # jsondata = {'longitude': '12.345678', 'latitude': '34.5677889', 'how': 'nonCoT', 'name': 'testing123'}
         jsondata = request.get_json(force=True)
         jsonobj = JsonController().serialize_presence_post(jsondata)
         Presence = UpdatePresenceController(jsonobj).getCoTObject()
@@ -652,8 +690,6 @@ def ManageRoute():
 @auth.login_required()
 def postRoute():
     try:
-        from json import dumps
-        # jsondata = {'longitude': '12.345678', 'latitude': '34.5677889', 'how': 'nonCoT', 'name': 'testing123'}
         jsondata = request.get_json(force=True)
         jsonobj = JsonController().serialize_route_post(jsondata)
         Route = SendRouteController(jsonobj).getCoTObject()
@@ -667,20 +703,13 @@ def postRoute():
 @auth.login_required
 def getZoneCoT():
     try:
-        from math import sqrt, degrees, cos, sin, radians, atan2
-        from sqlalchemy import or_, and_
         jsondata = request.get_json(force=True)
         radius = int(jsondata["radius"])
         lat = (int(jsondata["latitude"]))
         lon = int(jsondata["longitude"])
         lat_abs = abs(lat)
         lon_abs = abs(lon)
-        import geopy
-        from geopy.distance import distance
-        from FreeTAKServer.model.SQLAlchemy.CoTTables.Point import Point
-        from FreeTAKServer.model.SQLAlchemy.Event import Event
-        from FreeTAKServer.model.RestMessages.RestEnumerations import RestEnumerations
-        import re
+
         radius_in_deg = (geopy.units.degrees(arcseconds=geopy.units.nautical(meters=radius))) / 2
 
         results = dbController.query_CoT(query=[Event.point.has(or_(and_(Point.lon < 0, Point.lat < 0, (
@@ -742,8 +771,6 @@ def ManageGeoObject():
 @auth.login_required
 def getGeoObject():
     try:
-        from math import sqrt, degrees, cos, sin, radians, atan2
-        from sqlalchemy import or_, and_
         # jsondata = request.get_json(force=True)
         radius = request.args.get("radius", default=100, type=int)
         lat = request.args.get("latitude", default=0, type=float)
@@ -751,12 +778,6 @@ def getGeoObject():
         expectedAttitude = request.args.get("attitude", default="*", type=str)
         lat_abs = lat
         lon_abs = lon
-        import geopy
-        from geopy.distance import distance
-        from FreeTAKServer.model.SQLAlchemy.CoTTables.Point import Point
-        from FreeTAKServer.model.SQLAlchemy.Event import Event
-        from FreeTAKServer.model.RestMessages.RestEnumerations import RestEnumerations
-        import re
         radius_in_deg = (geopy.units.degrees(arcseconds=geopy.units.nautical(meters=radius))) / 2
         if lat_abs >= 0 and lon_abs >= 0:
             results = dbController.query_CoT(query=Event.point.has(and_(
@@ -889,10 +910,6 @@ def getGeoObject():
 @auth.login_required
 def postGeoObject():
     try:
-        from geopy import Point, distance
-        from json import dumps
-        print("posting geo object")
-        # jsondata = {'longitude': '12.345678', 'latitude': '34.5677889', 'attitude': 'friend', 'geoObject': 'Ground', 'how': 'nonCoT', 'name': 'testing123'}
         jsondata = request.get_json(force=True)
         jsonobj = JsonController().serialize_geoobject_post(jsondata)
         if "distance" in jsondata:
@@ -919,8 +936,6 @@ def postGeoObject():
 @auth.login_required
 def putGeoObject():
     try:
-        from json import dumps
-        # jsondata = {'longitude': '12.345678', 'latitude': '34.5677889', 'attitude': 'friend', 'geoObject': 'Ground', 'how': 'nonCoT', 'name': 'testing123'}
         jsondata = request.get_json(force=True)
         if "uid" in jsondata:
             jsonobj = JsonController().serialize_geoobject_post(jsondata)
@@ -951,9 +966,6 @@ def getVideoStream():
         # full stack entries
 
         # changed the main return from a list to an object to facilitate further development
-        from json import dumps
-        from urllib import parse
-        from FreeTAKServer.model.SQLAlchemy.CoTTables.Sensor import Sensor
 
         output = dbController.query_video()
         return_value = {"video_stream": {}}
@@ -977,7 +989,6 @@ def getVideoStream():
 @auth.login_required
 def deleteVideoStream():
     try:
-        from json import dumps
         jsondata = request.get_json(force=True)
         jsonobj = JsonController().serialize_video_stream_delete(jsondata)
         EmergencyObject = SendDeleteVideoStreamController(jsonobj).getCoTObject()
@@ -992,8 +1003,7 @@ def deleteVideoStream():
 def postVideoStream():
     """this method contains the logic for the endpoints which saves the contents of a new videostream to
     the db and sends a CoT to all connected clients containing stream information."""
-    from FreeTAKServer.model.FTSModel.Event import Event
-    from lxml.etree import tostring  # pylint: disable=no-name-in-module; name is in module
+    
     try:
         jsondata = request.get_json(force=True)
 
@@ -1042,8 +1052,6 @@ def ManageChat():
 @auth.login_required
 def postChatToAll():
     try:
-        from json import dumps
-        # jsondata = {'message': 'test abc', 'sender': 'natha'}
         jsondata = request.get_json(force=True)
         jsonobj = JsonController().serialize_chat_post(jsondata)
         ChatObject = SendChatController(jsonobj).getCoTObject()
@@ -1067,8 +1075,6 @@ def getEmergency():
 @auth.login_required
 def postEmergency():
     try:
-        from json import dumps
-
         jsondata = request.get_json(force=True)
         jsonobj = JsonController().serialize_emergency_post(jsondata)
         EmergencyObject = SendEmergencyController(jsonobj).getCoTObject()
@@ -1082,7 +1088,6 @@ def postEmergency():
 @auth.login_required
 def deleteEmergency():
     try:
-        from json import dumps
         jsondata = request.get_json(force=True)
         jsonobj = JsonController().serialize_emergency_delete(jsondata)
         EmergencyObject = SendEmergencyController(jsonobj).getCoTObject()
@@ -1102,8 +1107,6 @@ def sensor():
 @auth.login_required
 def postDroneSensor():
     try:
-        from json import dumps
-
         jsondata = request.get_json(force=True)
         print(jsondata)
         jsonobj = JsonController().serialize_drone_sensor_post(jsondata)
@@ -1129,8 +1132,6 @@ def postDroneSensor():
 @auth.login_required
 def postSPI():
     try:
-        from json import dumps
-
         jsondata = request.get_json(force=True)
         jsonobj = JsonController().serialize_spi_post(jsondata)
         SPIObject = SendSPISensorController(jsonobj).getCoTObject()
@@ -1143,7 +1144,6 @@ def postSPI():
 @app.route("/MapVid", methods=["POST"])
 @auth.login_required
 def mapvid():
-    from json import dumps
     jsondata = request.get_json(force=True)
     jsonobj = JsonController().serialize_imagery_video(jsondata)
     ImagerVideoObject = SendImageryVideoController(jsonobj).getCoTObject()
@@ -1205,7 +1205,6 @@ def ConnectionMessage():
         modelObject = Event.GeoChat()
         out = ApplyFullJsonController().serializeJsonToModel(modelObject, json)
         xml = XMLCoTController().serialize_model_to_CoT(out, 'event')
-        from FreeTAKServer.controllers.RestMessageControllers.SendChatController import SendChatController
         rawcot = RawCoT()
         rawcot.xmlString = xml
         rawcot.clientInformation = None
@@ -1249,7 +1248,6 @@ def APIUser():
 
 @app.route("/RecentCoT", methods=[restMethods.GET])
 def RecentCoT():
-    import time
     time.sleep(10)
     return b'1234'
 
@@ -1282,7 +1280,6 @@ def Clients():
 @auth.login_required()
 def FederationTable():
     try:
-        import random
         if request.method == restMethods.GET:
             output = dbController.query_ActiveFederation()
             for i in range(0, len(output)):
@@ -1296,7 +1293,6 @@ def FederationTable():
             return jsonify(activeFederations=output, federations=output2), 200
 
         elif request.method == restMethods.POST:
-            import uuid
             jsondata = json.loads(request.data)
             new_outgoing_federations = jsondata["outgoingFederations"]
             for new_fed in new_outgoing_federations:
@@ -1352,14 +1348,6 @@ def FederationTable():
 @auth.login_required()
 def create_kml():
     try:
-        from pykml.factory import KML_ElementMaker as KML
-        from pykml import parser
-        from pathlib import Path, PurePath
-        from lxml import etree
-        import hashlib
-        from zipfile import ZipFile
-        from lxml.etree import SubElement, Element  # pylint: disable=no-name-in-module
-        from geopy import Nominatim
         dp_directory = str(PurePath(Path(MainConfig.DataPackageFilePath)))
         jsondata = request.get_json(force=True)
         name = jsondata["name"]
@@ -1437,7 +1425,6 @@ def create_kml():
 @app.route('/BroadcastDataPackage', methods=[restMethods.POST])
 @auth.login_required()
 def broadcast_datapackage(uid):
-    import datetime as dt
     DATETIME_FMT = "%Y-%m-%dT%H:%M:%S.%fZ"
     timer = dt.datetime
     now = timer.utcnow()
@@ -1449,8 +1436,6 @@ def broadcast_datapackage(uid):
     now = timer.utcnow()
     zulu = now.strftime(DATETIME_FMT)
     time = zulu
-    from FreeTAKServer.controllers.SpecificCoTControllers.SendOtherController import SendOtherController
-    from FreeTAKServer.model.RawCoT import RawCoT
     cot = RawCoT()
     DPIP = getStatus().TCPDataPackageService.TCPDataPackageServiceIP
     DPObj = dbController.query_datapackage(f'uid = "{uid}"')[0]
@@ -1463,7 +1448,6 @@ def broadcast_datapackage(uid):
 @app.route('/DataPackageTable', methods=[restMethods.GET, restMethods.POST, restMethods.DELETE, "PUT"])
 @auth.login_required()
 def DataPackageTable():
-    from pathlib import Path
     if request.method == "GET":
         output = dbController.query_datapackage()
         for i in range(0, len(output)):
@@ -1490,14 +1474,7 @@ def DataPackageTable():
 
     elif request.method == "POST":
         try:
-            import string
-            import random
-            from pathlib import PurePath, Path
-            import hashlib
-            from zipfile import ZipFile
-            from defusedxml import ElementTree as etree
-            import uuid
-            from lxml.etree import SubElement, Element  # pylint: disable=no-name-in-module
+            
             dp_directory = str(PurePath(Path(MainConfig.DataPackageFilePath)))
             letters = string.ascii_letters
             # uid = ''.join(random.choice(letters) for i in range(4))
@@ -1572,7 +1549,6 @@ def DataPackageTable():
 def mission_table():
     try:
         if request.method == "GET":
-            import random
 
             jsondata = {
                 "version": "3",
@@ -1593,13 +1569,8 @@ def mission_table():
 @auth.login_required()
 def excheck_table():
     try:
-        from os import listdir
-        from pathlib import PurePath, Path
-        from datetime import datetime
-        from flask import request
         if request.method == "GET":
             jsondata = {"ExCheck": {'Templates': [], 'Checklists': []}}
-            from FreeTAKServer.controllers.ExCheckControllers.templateToJsonSerializer import templateSerializer
             excheckTemplates = DatabaseController().query_ExCheck()
             for template in excheckTemplates:
                 templateData = template.data
@@ -1647,13 +1618,8 @@ def excheck_table():
             return 'success', 200
         elif request.method == "POST":
             try:
-                import uuid
-                from FreeTAKServer.controllers.ExCheckControllers.templateToJsonSerializer import templateSerializer
                 xmlstring = f'<?xml version="1.0"?><event version="2.0" uid="{uuid.uuid4()}" type="t-x-m-c" time="2020-11-28T17:45:51.000Z" start="2020-11-28T17:45:51.000Z" stale="2020-11-28T17:46:11.000Z" how="h-g-i-g-o"><point lat="0.00000000" lon="0.00000000" hae="0.00000000" ce="9999999" le="9999999" /><detail><mission type="CHANGE" tool="ExCheck" name="exchecktemplates" authorUid="S-1-5-21-2720623347-3037847324-4167270909-1002"><MissionChanges><MissionChange><contentResource><filename>61b01475-ad44-4300-addc-a9474ebf67b0.xml</filename><hash>018cd5786bd6c2e603beef30d6a59987b72944a60de9e11562297c35ebdb7fd6</hash><keywords>test init</keywords><keywords>dessc init</keywords><keywords>FEATHER</keywords><mimeType>application/xml</mimeType><name>61b01475-ad44-4300-addc-a9474ebf67b0</name><size>1522</size><submissionTime>2020-11-28T17:45:47.980Z</submissionTime><submitter>wintak</submitter><tool>ExCheck</tool><uid>61b01475-ad44-4300-addc-a9474ebf67b0</uid></contentResource><creatorUid>S-1-5-21-2720623347-3037847324-4167270909-1002</creatorUid><missionName>exchecktemplates</missionName><timestamp>2020-11-28T17:45:47.983Z</timestamp><type>ADD_CONTENT</type></MissionChange></MissionChanges></mission></detail></event>'
                 # this is where the client will post the xmi of a template
-                from datetime import datetime
-                from defusedxml import ElementTree as etree
-                import hashlib
                 # possibly the uid of the client submitting the template
                 authoruid = request.args.get('clientUid')
                 if not authoruid:
@@ -1684,7 +1650,6 @@ def excheck_table():
                 resources.find('size').text = str(len(XMI))
                 resources.find('hash').text = str(hashlib.sha256(str(XMI).encode()).hexdigest())
                 z = etree.tostring(cot)
-                from FreeTAKServer.model.testobj import testobj
                 object = testobj()
                 object.xmlString = z
                 APIPipe.put(object)
@@ -1714,7 +1679,6 @@ def check_status():
 @app.route('/manageAPI/getHelp', methods=[restMethods.GET])
 def help():
     try:
-        from flask import url_for
         message = {"APIVersion": str(MainConfig.APIVersion),
                    "SupportedEndpoints": [url_for(i.endpoint, **(i.defaults or {})) for i in app.url_map.iter_rules() if
                                           i.endpoint != 'static']
@@ -1730,7 +1694,6 @@ def changeStatus(jsonmessage):
     # TODO: modify to better support format
     mappings = {"on": "start", "off": "stop", "": ""}
     try:
-        import json
         if not jsonmessage:
             jsonmessage = json.loads(request.data)
         FTSObject = FTS()
