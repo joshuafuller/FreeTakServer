@@ -16,7 +16,7 @@ API_VERSION = "3"
 ROOTPATH = "/"
 MAINPATH = Path(__file__).parent.parent.parent
 USERPATH = rf"{ROOTPATH}usr/local/lib/"
-PERSISTENCE_PATH = r'/opt/fts'
+PERSISTENCE_PATH = os.environ.get('FTS_PERSISTENCE_PATH', r'/opt/fts')
 
 class MainConfig:
     """
@@ -59,7 +59,7 @@ class MainConfig:
         "MaxReceptionTime": {"default": 4, "type": int},
         "LogLevel": {"default": "info", "type": str},
         "UserPersistencePath": {
-            "default": Path("/opt/user_persistence.txt"),
+            "default": Path(f"{PERSISTENCE_PATH}/user_persistence.txt"),
             "type": str,
         },
         # number of milliseconds to wait between each iteration of main loop
@@ -436,7 +436,8 @@ class MainConfig:
         sanitized_path = ROOTPATH + os.path.relpath(os.path.normpath(os.path.join(os.sep, path)), os.sep)
 
         if not os.access(sanitized_path, os.F_OK) or not os.access(sanitized_path, os.W_OK):
-            raise ValueError
+            print(f"Cannot access configuration path: {sanitized_path}")
+            sys.exit(1)
 
         return sanitized_path
 
